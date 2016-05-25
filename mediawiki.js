@@ -164,13 +164,17 @@ var MediaWiki = {};
 
         var options = {
             uri: this.settings.endpoint,
-            qs: args,
             method: method,
-            form: args,
             jar: true,
             headers: {
                 "User-Agent": this.settings.userAgent
             }
+        }
+
+        if (method == 'POST') {
+          options.form = args; // form encoded body
+        } else {
+          options.qs = args; // query string
         }
 
         var _this = this;
@@ -239,17 +243,18 @@ var MediaWiki = {};
      * @param username the user to log in as
      * @param password the password to use
      * @param isPriority (optional) should the request be added to the top of the request queue (defualt: false)
+     * @param domain (optional) the domain to use
      */
-    Bot.prototype.login = function (username, password, isPriority) {
+    Bot.prototype.login = function (username, password, isPriority, domain) {
         var promise = new Promise();
         
-        this.post({ action: "login", lgname: username, lgpassword: password }, isPriority).complete(function (data) {
+        this.post({ action: "login", lgname: username, lgpassword: password, lgdomain: domain }, isPriority).complete(function (data) {
             switch (data.login.result) {
                 case "Success":
                     promise._onComplete.call(this, data.login.lgusername);
                     break;
                 case "NeedToken":
-                    this.post({ action: "login", lgname: username, lgpassword: password, lgtoken: data.login.token }, true).complete(function (data) {
+                    this.post({ action: "login", lgname: username, lgpassword: password, lgdomain: domain, lgtoken: data.login.token }, true).complete(function (data) {
                         if (data.login.result == "Success") {
                             promise._onComplete.call(this, data.login.lgusername);
                         } else {
@@ -477,11 +482,14 @@ var MediaWiki = {};
             props.forEach(function (prop) {
                 var token = data.query.pages[prop].edittoken;
                 var starttimestamp = data.query.pages[prop].starttimestamp;
-                var basetimestamp = data.query.pages[prop].revisions[0].timestamp;
+                // won't be any revisions for a new page
+                var basetimestamp = data.query.pages[prop].revisions ? data.query.pages[prop].revisions[0].timestamp : '';
                 var args = { action: "edit", title: title, text: text, summary: summary, token: token, bot: true, basetimestamp: basetimestamp, starttimestamp: starttimestamp };
                 if (section != null) args.section = section;
                 _this.post(args, true).complete(function (data) {
-                    if (data.edit.result == "Success") {
+                    if (data.error) {
+                        promise._onError.call(this, new Error(data.error));
+                    } else if (data.edit.result == "Success") {
                         promise._onComplete.call(this, data.edit.title, data.edit.newrevid, new Date(data.edit.newtimestamp));
                     } else {
                         promise._onError.call(this, new Error(data.edit.result));
